@@ -46,7 +46,20 @@ async function run() {
         res.status(500).json({ message: error.message });
       }
     });
+    app.get("/users/email/:email", async (req, res) => {
+      try {
+        const email = req.params.email;
+        const user = await usersCollection.findOne({ email: email });
 
+        if (!user) {
+          return res.status(404).json({ message: "User not found" });
+        }
+
+        res.json(user);
+      } catch (error) {
+        res.status(500).json({ message: error.message });
+      }
+    });
     // Send a ping to confirm a successful connection
     await client.db("admin").command({ ping: 1 });
     console.log(
