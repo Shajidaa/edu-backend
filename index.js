@@ -19,7 +19,7 @@ async function run() {
   try {
     const db = client.db("eduNextGen");
     const usersCollection = db.collection("users");
-
+    const coursesCollection = db.collection("courses");
     app.post("/users", async (req, res) => {
       try {
         const userData = req.body;
@@ -187,11 +187,22 @@ async function run() {
       }
     });
 
-    // Send a ping to confirm a successful connection
-    // await client.db("admin").command({ ping: 1 });
-    // console.log(
-    //   "Pinged your deployment. You successfully connected to MongoDB!",
-    // );
+    app.get("/courses", async (req, res) => {
+      try {
+        // 1. Fetch data
+        const courses = await coursesCollection.find().toArray();
+
+        res.json(courses);
+      } catch (error) {
+        console.error("Critical: Failed to fetch courses from MongoDB", error);
+
+        // 4. Send a user-friendly error to the client
+        res.status(500).json({
+          success: false,
+          message: "Internal server error. Please try again later.",
+        });
+      }
+    });
   } finally {
     // Ensures that the client will close when you finish/error
     // await client.close();
@@ -203,7 +214,7 @@ app.get("/", (req, res) => {
   res.send("Hello World!");
 });
 
-// app.listen(port, () => {
-//   console.log(`Example app listening on port ${port}`);
-// });
+app.listen(port, () => {
+  console.log(`Example app listening on port ${port}`);
+});
 module.exports = app;
