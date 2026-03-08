@@ -20,6 +20,7 @@ async function run() {
     const db = client.db("eduNextGen");
     const usersCollection = db.collection("users");
     const coursesCollection = db.collection("courses");
+    const campsCollection = db.collection("camp");
     app.post("/users", async (req, res) => {
       try {
         const userData = req.body;
@@ -195,6 +196,22 @@ async function run() {
         res.json(courses);
       } catch (error) {
         console.error("Critical: Failed to fetch courses from MongoDB", error);
+
+        // 4. Send a user-friendly error to the client
+        res.status(500).json({
+          success: false,
+          message: "Internal server error. Please try again later.",
+        });
+      }
+    });
+    app.get("/camps", async (req, res) => {
+      try {
+        // 1. Fetch data
+        const camps = await campsCollection.find().toArray();
+
+        res.json(camps);
+      } catch (error) {
+        console.error("Critical: Failed to fetch camps from MongoDB", error);
 
         // 4. Send a user-friendly error to the client
         res.status(500).json({
