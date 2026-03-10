@@ -12,6 +12,7 @@ const client = new MongoClient(process.env.MONGODB_URI, {
     deprecationErrors: true,
   },
 });
+
 app.use(express.json());
 app.use(cors());
 
@@ -21,6 +22,7 @@ async function run() {
     const usersCollection = db.collection("users");
     const coursesCollection = db.collection("courses");
     const campsCollection = db.collection("camp");
+
     app.post("/users", async (req, res) => {
       try {
         const userData = req.body;
@@ -38,6 +40,7 @@ async function run() {
             bio: "",
             location: "",
             phone: "",
+            calendlyLink: "",
             education: [],
             subjects: [],
             experience: [],
@@ -108,6 +111,7 @@ async function run() {
               experience: profile.experience || [],
               verified: user.profile?.verified || false,
               rating: user.profile?.rating || 0,
+              calendlyLink: profile.calendlyLink || "",
               totalReviews: user.profile?.totalReviews || 0,
             },
             updated_at: new Date().toString(),
