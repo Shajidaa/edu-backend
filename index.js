@@ -3,239 +3,170 @@ const express = require("express");
 const app = express();
 const port = 5000;
 const cors = require("cors");
-const { MongoClient, ServerApiVersion } = require("mongodb");
+const { Pool } = require("pg");
 
-const client = new MongoClient(process.env.MONGODB_URI, {
-  serverApi: {
-    version: ServerApiVersion.v1,
-    strict: true,
-    deprecationErrors: true,
+// PostgreSQL Connection Pool
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: {
+    rejectUnauthorized: false, // Neon/Supabase এর জন্য প্রয়োজন
   },
 });
 
 app.use(express.json());
 app.use(cors());
 
-async function run() {
+// --- Routes ---
+
+// ১. ব্যবহারকারী তৈরি বা আপডেট (PostgreSQL UPSERT)
+app.post("/users", async (req, res) => {
   try {
-    const db = client.db("eduNextGen");
-    const usersCollection = db.collection("users");
-    const coursesCollection = db.collection("courses");
-    const campsCollection = db.collection("camp");
+    const { name, email, image, role, profile, created_at, last_loggedIn } =
+      req.body;
 
-    app.post("/users", async (req, res) => {
-      try {
-        const userData = req.body;
-        userData.created_at = new Date().toString();
-        userData.last_loggedIn = new Date().toString();
+    const query = `
+      INSERT INTO users (name, email, image, role, profile, created_at, last_loggedin)
+      VALUES ($1, $2, $3, $4, $5, $6, $7)
+      ON CONFLICT (email) 
+      DO UPDATE SET 
+        last_loggedin = EXCLUDED.last_loggedin,
+        profile = users.profile || EXCLUDED.profile -- আগের প্রোফাইলের সাথে নতুনটা মার্জ হবে
+      RETURNING *;
+    `;
 
-        if (!userData.role) {
-          userData.role = "student";
-        }
+    // profile অবজেক্টটিকে JSON স্ট্রিং এ রূপান্তর করে পাঠানো হচ্ছে
+    const values = [
+      name,
+      email,
+      image,
+      role || "student",
+      JSON.stringify(profile || {}),
+      created_at || new Date().toString(),
+      last_loggedIn || new Date().toString(),
+    ];
 
-        // Initialize empty profile for tutors
-        if (userData.role === "tutor" && !userData.profile) {
-          userData.profile = {
-            title: "",
-            bio: "",
-            location: "",
-            phone: "",
-            calendlyLink: "",
-            education: [],
-            subjects: [],
-            experience: [],
-            verified: false,
-            rating: 0,
-            totalReviews: 0,
-          };
-        }
-
-        const query = { email: userData.email };
-        const alreadyExists = await usersCollection.findOne(query);
-
-        if (alreadyExists) {
-          const result = await usersCollection.updateOne(query, {
-            $set: { last_loggedIn: new Date().toString() },
-          });
-          return res.send(result);
-        }
-
-        const result = await usersCollection.insertOne(userData);
-        res.send(result);
-      } catch (error) {
-        res.status(500).json({ message: error.message });
-      }
-    });
-
-    app.get("/users/email/:email", async (req, res) => {
-      try {
-        const email = req.params.email;
-        const user = await usersCollection.findOne({ email: email });
-
-        if (!user) {
-          return res.status(404).json({ message: "User not found" });
-        }
-
-        res.json(user);
-      } catch (error) {
-        res.status(500).json({ message: error.message });
-      }
-    });
-
-    // PUT endpoint - Update tutor profile
-    app.put("/users/profile", async (req, res) => {
-      try {
-        const { email, profile } = req.body;
-
-        if (!email) {
-          return res.status(400).json({ message: "Email is required" });
-        }
-
-        const query = { email: email };
-        const user = await usersCollection.findOne(query);
-
-        if (!user) {
-          return res.status(404).json({ message: "User not found" });
-        }
-
-        // Update profile with new data
-        const updateData = {
-          $set: {
-            profile: {
-              title: profile.title || "",
-              bio: profile.bio || "",
-              location: profile.location || "",
-              phone: profile.phone || "",
-              education: profile.education || [],
-              subjects: profile.subjects || [],
-              experience: profile.experience || [],
-              verified: user.profile?.verified || false,
-              rating: user.profile?.rating || 0,
-              calendlyLink: profile.calendlyLink || "",
-              totalReviews: user.profile?.totalReviews || 0,
-            },
-            updated_at: new Date().toString(),
-          },
-        };
-
-        const result = await usersCollection.updateOne(query, updateData);
-
-        if (result.modifiedCount > 0) {
-          res.status(200).json({
-            message: "Profile updated successfully",
-            result,
-          });
-        } else {
-          res.status(400).json({ message: "Failed to update profile" });
-        }
-      } catch (error) {
-        console.error("Error updating profile:", error);
-        res.status(500).json({ message: error.message });
-      }
-    });
-
-    // GET endpoint - Fetch tutor profile by email
-    app.get("/users/profile/:email", async (req, res) => {
-      try {
-        const { email } = req.params;
-
-        if (!email) {
-          return res.status(400).json({ message: "Email is required" });
-        }
-
-        const query = { email: email };
-        const user = await usersCollection.findOne(query);
-
-        if (!user) {
-          return res.status(404).json({ message: "User not found" });
-        }
-
-        res.status(200).json({
-          profile: user.profile || {
-            title: "",
-            bio: "",
-            location: "",
-            phone: "",
-            education: [],
-            subjects: [],
-            experience: [],
-          },
-          name: user.name,
-          email: user.email,
-          image: user.image,
-          role: user.role,
-        });
-      } catch (error) {
-        console.error("Error fetching profile:", error);
-        res.status(500).json({ message: error.message });
-      }
-    });
-
-    // GET endpoint - Fetch all tutors (optional - for student view)
-    app.get("/users/tutors", async (req, res) => {
-      try {
-        const tutors = await usersCollection
-          .find({ role: "tutor" })
-          .project({
-            name: 1,
-            email: 1,
-            image: 1,
-            profile: 1,
-          })
-          .sort({ "profile.rating": -1 })
-          .toArray();
-
-        res.status(200).json({ tutors });
-      } catch (error) {
-        console.error("Error fetching tutors:", error);
-        res.status(500).json({ message: error.message });
-      }
-    });
-
-    app.get("/courses", async (req, res) => {
-      try {
-        // 1. Fetch data
-        const courses = await coursesCollection.find().toArray();
-
-        res.json(courses);
-      } catch (error) {
-        console.error("Critical: Failed to fetch courses from MongoDB", error);
-
-        // 4. Send a user-friendly error to the client
-        res.status(500).json({
-          success: false,
-          message: "Internal server error. Please try again later.",
-        });
-      }
-    });
-    app.get("/camps", async (req, res) => {
-      try {
-        // 1. Fetch data
-        const camps = await campsCollection.find().toArray();
-
-        res.json(camps);
-      } catch (error) {
-        console.error("Critical: Failed to fetch camps from MongoDB", error);
-
-        // 4. Send a user-friendly error to the client
-        res.status(500).json({
-          success: false,
-          message: "Internal server error. Please try again later.",
-        });
-      }
-    });
-  } finally {
-    // Ensures that the client will close when you finish/error
-    // await client.close();
+    const result = await pool.query(query, values);
+    res.status(200).json(result.rows[0]);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: error.message });
   }
-}
-run().catch(console.dir);
+});
+
+// ২. ইমেইল দিয়ে ইউজার খুঁজে বের করা
+app.get("/users/email/:email", async (req, res) => {
+  try {
+    const { email } = req.params;
+    const result = await pool.query("SELECT * FROM users WHERE email = $1", [
+      email,
+    ]);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    res.json(result.rows[0]);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// ৩. টিউটর প্রোফাইল আপডেট করা
+app.put("/users/profile", async (req, res) => {
+  try {
+    const { email, profile } = req.body;
+
+    if (!email) {
+      return res.status(400).json({ message: "Email is required" });
+    }
+
+    // আগের ইউজার ডাটা চেক করা (Verified/Rating ঠিক রাখার জন্য)
+    const userResult = await pool.query(
+      "SELECT profile FROM users WHERE email = $1",
+      [email],
+    );
+    if (userResult.rows.length === 0) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    const oldProfile = userResult.rows[0].profile;
+
+    const updatedProfile = {
+      ...profile,
+      verified: oldProfile?.verified || false,
+      rating: oldProfile?.rating || 0,
+      totalReviews: oldProfile?.totalReviews || 0,
+    };
+
+    const updateQuery = `
+      UPDATE users 
+      SET profile = $1, updated_at = $2 
+      WHERE email = $3 
+      RETURNING *;
+    `;
+
+    const result = await pool.query(updateQuery, [
+      JSON.stringify(updatedProfile),
+      new Date().toISOString(),
+      email,
+    ]);
+
+    if (result.rowCount > 0) {
+      res.status(200).json({
+        message: "Profile updated successfully",
+        result: result.rows[0],
+      });
+    } else {
+      res.status(400).json({ message: "Failed to update profile" });
+    }
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// ৪. সব টিউটরদের লিস্ট (রেটিং অনুযায়ী সর্ট করা)
+app.get("/users/tutors", async (req, res) => {
+  try {
+    // PostgreSQL এ JSONB এর ভেতর সর্ট করার নিয়ম
+    const query = `
+      SELECT name, email, image, profile 
+      FROM users 
+      WHERE role = 'tutor' 
+      ORDER BY (profile->>'rating')::float DESC;
+    `;
+    const result = await pool.query(query);
+    res.status(200).json({ tutors: result.rows });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// ৫. সব কোর্স নিয়ে আসা
+app.get("/courses", async (req, res) => {
+  try {
+    const result = await pool.query("SELECT * FROM courses");
+    res.json(result.rows);
+  } catch (error) {
+    res.status(500).json({ success: false, message: "Internal server error" });
+  }
+});
+
+// ৬. সব ক্যাম্প নিয়ে আসা
+app.get("/camps", async (req, res) => {
+  try {
+    const result = await pool.query("SELECT * FROM camps");
+    res.json(result.rows);
+  } catch (error) {
+    res.status(500).json({ success: false, message: "Internal server error" });
+  }
+});
 
 app.get("/", (req, res) => {
-  res.send("Hello World!");
+  res.send("EduNextGen API is running with PostgreSQL!");
 });
 
 app.listen(port, () => {
-  console.log(`Example app listening on port ${port}`);
+  console.log(`Server listening on port ${port}`);
 });
+
 module.exports = app;
