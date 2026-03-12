@@ -19,10 +19,10 @@ app.use(cors());
 // --- Routes ---
 
 // ১. ব্যবহারকারী তৈরি বা আপডেট (PostgreSQL UPSERT)
+
 app.post("/users", async (req, res) => {
   try {
-    const { name, email, image, role, profile, created_at, last_loggedIn } =
-      req.body;
+    const { name, email, image, role, profile } = req.body;
 
     const query = `
       INSERT INTO users (name, email, image, role, profile, created_at, last_loggedin)
@@ -30,25 +30,24 @@ app.post("/users", async (req, res) => {
       ON CONFLICT (email) 
       DO UPDATE SET 
         last_loggedin = EXCLUDED.last_loggedin,
-        profile = users.profile || EXCLUDED.profile -- আগের প্রোফাইলের সাথে নতুনটা মার্জ হবে
+        image = EXCLUDED.image
       RETURNING *;
     `;
 
-    // profile অবজেক্টটিকে JSON স্ট্রিং এ রূপান্তর করে পাঠানো হচ্ছে
     const values = [
       name,
       email,
       image,
       role || "student",
-      JSON.stringify(profile || {}),
-      created_at || new Date().toString(),
-      last_loggedIn || new Date().toString(),
+      profile ? JSON.stringify(profile) : JSON.stringify({}), // Ensure it's a string
+      new Date().toISOString(), // Use ISO string
+      new Date().toISOString(),
     ];
 
     const result = await pool.query(query, values);
     res.status(200).json(result.rows[0]);
   } catch (error) {
-    console.error(error);
+    console.error("Database Error:", error.message);
     res.status(500).json({ message: error.message });
   }
 });
@@ -161,6 +160,45 @@ app.get("/camps", async (req, res) => {
   }
 });
 
+// GET endpoint - Fetch tutor profile by email (Neon/PostgreSQL version)
+app.get("/users/profile/:email", async (req, res) => {
+  try {
+    const { email } = req.params;
+
+    if (!email) {
+      return res.status(400).json({ message: "Email is required" });
+    }
+
+    // PostgreSQL SELECT query
+    const query = "SELECT * FROM users WHERE email = $1";
+    const result = await pool.query(query, [email]);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    const user = result.rows[0];
+
+    res.status(200).json({
+      profile: user.profile || {
+        title: "",
+        bio: "",
+        location: "",
+        phone: "",
+        education: [],
+        subjects: [],
+        experience: [],
+      },
+      name: user.name,
+      email: user.email,
+      image: user.image,
+      role: user.role,
+    });
+  } catch (error) {
+    console.error("Error fetching profile from Neon:", error);
+    res.status(500).json({ message: error.message });
+  }
+});
 app.get("/", (req, res) => {
   res.send("EduNextGen API is running with PostgreSQL!");
 });
