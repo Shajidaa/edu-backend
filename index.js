@@ -75,50 +75,51 @@ app.put("/users/profile", async (req, res) => {
   try {
     const { email, profile } = req.body;
 
-    if (!email) {
-      return res.status(400).json({ message: "Email is required" });
-    }
+    if (!email) return res.status(400).json({ message: "Email is required" });
 
-    // আগের ইউজার ডাটা চেক করা (Verified/Rating ঠিক রাখার জন্য)
+    // ১. ইউজার আছে কি না এবং তার বর্তমান প্রোফাইল ডাটা নিয়ে আসা
     const userResult = await pool.query(
       "SELECT profile FROM users WHERE email = $1",
       [email],
     );
+
     if (userResult.rows.length === 0) {
       return res.status(404).json({ message: "User not found" });
     }
 
-    const oldProfile = userResult.rows[0].profile;
+    const oldProfile = userResult.rows[0].profile || {};
 
+    // ২. প্রোফাইল ডাটা মার্জ করা (যাতে রেটিং বা ভেরিফাইড স্ট্যাটাস হারিয়ে না যায়)
     const updatedProfile = {
       ...profile,
-      verified: oldProfile?.verified || false,
-      rating: oldProfile?.rating || 0,
-      totalReviews: oldProfile?.totalReviews || 0,
+      education: Array.isArray(profile.education) ? profile.education : [],
+      subjects: Array.isArray(profile.subjects) ? profile.subjects : [],
+      experience: Array.isArray(profile.experience) ? profile.experience : [],
+      verified: oldProfile.verified || false,
+      rating: oldProfile.rating || 0,
+      totalReviews: oldProfile.totalReviews || 0,
     };
 
+    // ৩. ডাটাবেসে আপডেট করা
+    // আপনার 'profile' কলামটি যদি JSONB হয় তবে সরাসরি অবজেক্ট দিন, নাহলে stringify করুন
     const updateQuery = `
       UPDATE users 
-      SET profile = $1, updated_at = $2 
-      WHERE email = $3 
-      RETURNING *;
+      SET profile = $1, updated_at = NOW() 
+      WHERE email = $2 
+      RETURNING profile;
     `;
 
     const result = await pool.query(updateQuery, [
-      JSON.stringify(updatedProfile),
-      new Date().toISOString(),
+      JSON.stringify(updatedProfile), // stringify করা নিরাপদ যদি JSONB ব্যবহার করেন
       email,
     ]);
 
-    if (result.rowCount > 0) {
-      res.status(200).json({
-        message: "Profile updated successfully",
-        result: result.rows[0],
-      });
-    } else {
-      res.status(400).json({ message: "Failed to update profile" });
-    }
+    res.status(200).json({
+      message: "Profile updated successfully",
+      profile: result.rows[0].profile,
+    });
   } catch (error) {
+    console.error("Database Error:", error); // এটি আপনার কনসোলে এরর ডিটেইলস দেখাবে
     res.status(500).json({ message: error.message });
   }
 });
