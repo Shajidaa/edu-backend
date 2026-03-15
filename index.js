@@ -200,6 +200,34 @@ app.get("/users/profile/:email", async (req, res) => {
     res.status(500).json({ message: error.message });
   }
 });
+// ব্যাকএন্ডে ম্যানুয়াল বুকিং সেভ করার রুট
+app.post("/api/bookings/manual", async (req, res) => {
+  try {
+    const { tutorEmail, studentEmail, studentName, meetingUrl } = req.body;
+
+    const query = `
+      INSERT INTO bookings (student_name, student_email, tutor_email, start_time, meeting_url)
+      VALUES ($1, $2, $3, NOW(), $4)
+      RETURNING *;
+    `;
+
+    const values = [
+      studentName,
+      studentEmail,
+      tutorEmail,
+      meetingUrl || "Check Calendly for Link",
+    ];
+
+    const result = await pool.query(query, values);
+    res
+      .status(200)
+      .json({ message: "Booking saved!", booking: result.rows[0] });
+  } catch (error) {
+    console.error("Database Error:", error.message);
+    res.status(500).json({ message: "Failed to save booking" });
+  }
+});
+
 app.get("/", (req, res) => {
   res.send("EduNextGen API is running with PostgreSQL!");
 });
