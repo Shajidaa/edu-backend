@@ -227,7 +227,26 @@ app.post("/api/bookings/manual", async (req, res) => {
     res.status(500).json({ message: "Failed to save booking" });
   }
 });
+// স্টুডেন্টের ইমেইল অনুযায়ী বুকিং লিস্ট পাওয়া
+app.get("/api/bookings/student/:email", async (req, res) => {
+  try {
+    const { email } = req.params;
 
+    // ডাটাবেস থেকে ওই স্টুডেন্টের সব মিটিং নিয়ে আসা
+    const query = `
+      SELECT id, student_name, student_email, tutor_email, start_time, meeting_url 
+      FROM bookings 
+      WHERE student_email = $1 
+      ORDER BY start_time DESC;
+    `;
+
+    const result = await pool.query(query, [email]);
+    res.status(200).json(result.rows);
+  } catch (error) {
+    console.error("Error fetching student sessions:", error.message);
+    res.status(500).json({ message: "Internal Server Error" });
+  }
+});
 app.get("/", (req, res) => {
   res.send("EduNextGen API is running with PostgreSQL!");
 });
