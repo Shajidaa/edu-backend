@@ -22,6 +22,14 @@ app.use("/api/bookings", bookingRoutes);
 app.post("/api/bookings/manual", bookingController.createBooking);
 app.get("/api/bookings/student/:email", bookingController.getStudentBookings);
 
+app.get("/competitions", async (req, res) => {
+  try {
+    const result = await pool.query("SELECT * FROM competitions");
+    res.json(result.rows);
+  } catch (err) {
+    res.status(500).json({ message: "Internal error" });
+  }
+});
 // Courses & Camps (Simple GETs)
 app.get("/courses", async (req, res) => {
   try {
